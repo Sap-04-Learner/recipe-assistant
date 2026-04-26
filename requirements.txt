@@ -2,3 +2,4 @@ pandas
 chromadb
 tqdm
 jupyter
+ollama

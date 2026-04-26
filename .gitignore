@@ -1,3 +1,6 @@
 /venv
 
-/receipe-assistant/data
+**/data
+**/recipe_db
+
+**/__pycache__
