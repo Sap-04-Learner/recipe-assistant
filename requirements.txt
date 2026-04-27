@@ -3,3 +3,4 @@ chromadb
 tqdm
 jupyter
 ollama
+flask

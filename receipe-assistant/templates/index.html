@@ -1,0 +1,229 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>AI Chef Assistant</title>
+    <!-- INCLUDE MARKED.JS FOR MARKDOWN RENDERING -->
+    <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
+    <style>
+        body { font-family: Arial, sans-serif; background-color: #f4f4f9; margin: 0; padding: 20px; display: flex; justify-content: center; }
+        .chat-container { width: 100%; max-width: 650px; background: white; border-radius: 10px; box-shadow: 0 4px 10px rgba(0,0,0,0.1); display: flex; flex-direction: column; height: 85vh; position: relative;}
+        .header { background: #ff6f61; color: white; padding: 15px; text-align: center; border-radius: 10px 10px 0 0; font-size: 1.2em; font-weight: bold; }
+        .chat-box { flex: 1; padding: 20px; overflow-y: auto; display: flex; flex-direction: column; gap: 15px; }
+        
+        /* CHAT BUBBLES */
+        .message { padding: 10px 15px; border-radius: 20px; max-width: 80%; line-height: 1.5; word-wrap: break-word; }
+        .user { background: #ff9a8d; color: white; align-self: flex-end; border-bottom-right-radius: 2px; }
+        .chef { background: #e9ecef; color: black; align-self: flex-start; border-bottom-left-radius: 2px; }
+        .system { color: #888; font-size: 0.85em; text-align: center; margin: 0 auto; font-style: italic; background: none;}
+        
+        .message p { margin: 0 0 10px 0; }
+        .message p:last-child { margin: 0; }
+        .message ul, .message ol { margin-top: 5px; margin-bottom: 5px; padding-left: 20px; }
+
+        /* INPUT AREA */
+        .input-area { display: flex; padding: 15px; border-top: 1px solid #ddd; align-items: center;}
+        .add-btn { background: #ff6f61; color: white; border: none; width: 40px; height: 40px; border-radius: 50%; font-size: 1.5em; cursor: pointer; display: flex; align-items: center; justify-content: center; margin-right: 10px;}
+        .add-btn:hover { background: #e65b50; }
+        input[type="text"] { flex: 1; padding: 12px; border: 1px solid #ccc; border-radius: 20px; outline: none; font-size: 1em; }
+        .send-btn { background: #ff6f61; color: white; border: none; padding: 10px 20px; margin-left: 10px; border-radius: 20px; cursor: pointer; font-size: 1em; }
+        .send-btn:hover { background: #e65b50; }
+
+        /* INGREDIENT MODAL DRAWER */
+        #ingredient-drawer { display: none; position: absolute; bottom: 80px; left: 15px; right: 15px; background: white; border: 1px solid #ddd; border-radius: 10px; padding: 15px; box-shadow: 0 -4px 15px rgba(0,0,0,0.2); max-height: 250px; display: flex; flex-direction: column; z-index: 100;}
+        .drawer-header { font-weight: bold; margin-bottom: 10px; display: flex; justify-content: space-between; align-items: center;}
+        .close-drawer { cursor: pointer; color: red; font-weight: bold; font-size: 1.2em;}
+        #ingredient-search { width: 100%; box-sizing: border-box; padding: 8px; margin-bottom: 10px; border-radius: 10px; border: 1px solid #ccc; }
+        #ingredient-list { overflow-y: auto; flex: 1; }
+        .ingredient-pill { display: inline-block; background: #ffe4e1; color: #ff6f61; padding: 5px 10px; border-radius: 15px; margin: 3px; cursor: pointer; font-size: 0.9em;}
+        .ingredient-pill:hover { background: #ffb3ab; color: white;}
+
+        /* ANIMATED LOADING DOTS */
+        .typing-indicator span {
+            display: inline-block; width: 6px; height: 6px; background-color: #888; border-radius: 50%; margin: 0 2px;
+            animation: bounce 1.4s infinite ease-in-out both;
+        }
+        .typing-indicator span:nth-child(1) { animation-delay: -0.32s; }
+        .typing-indicator span:nth-child(2) { animation-delay: -0.16s; }
+        @keyframes bounce { 0%, 80%, 100% { transform: scale(0); } 40% { transform: scale(1); } }
+    </style>
+</head>
+<body>
+
+<div class="chat-container">
+    <div class="header">👨‍🍳 The Chef is in the kitchen</div>
+    
+    <div class="chat-box" id="chat-box">
+        <div class="message chef">Hello! I'm your kitchen assistant. What ingredients are we working with today?</div>
+    </div>
+
+    <!-- INGREDIENT SELECTION DRAWER (Hidden by default) -->
+    <div id="ingredient-drawer" style="display: none;">
+        <div class="drawer-header">
+            <span>Select ingredients:</span>
+            <span class="close-drawer" onclick="toggleDrawer()">✖</span>
+        </div>
+        <input type="text" id="ingredient-search" placeholder="Type to search (e.g. chicken)..." onkeyup="filterIngredients()">
+        <div id="ingredient-list">Loading database...</div>
+    </div>
+
+    <div class="input-area">
+        <button class="add-btn" onclick="toggleDrawer()">+</button>
+        <input type="text" id="user-input" placeholder="I have prawns, olive, potato..." onkeypress="handleKeyPress(event)">
+        <button class="send-btn" onclick="sendMessage()">Send</button>
+    </div>
+</div>
+
+<script>
+    const chatBox = document.getElementById("chat-box");
+    const userInput = document.getElementById("user-input");
+    const drawer = document.getElementById("ingredient-drawer");
+    const ingredientList = document.getElementById("ingredient-list");
+
+    let allIngredientsData =[];
+
+    // --- FETCH ALL INGREDIENTS ON LOAD ---
+    window.onload = async function() {
+        try {
+            const res = await fetch('/api/ingredients');
+            const data = await res.json();
+            allIngredientsData = data.ingredients;
+            // Only render the first 100 initially to prevent browser freeze
+            renderIngredients(allIngredientsData.slice(0, 100)); 
+        } catch (error) {
+            ingredientList.innerHTML = "Could not load ingredients.";
+        }
+    }
+
+    function renderIngredients(list) {
+        ingredientList.innerHTML = "";
+        if(list.length === 0) {
+            ingredientList.innerHTML = "<i>No ingredients found.</i>";
+            return;
+        }
+        list.forEach(ing => {
+            const span = document.createElement("span");
+            span.className = "ingredient-pill";
+            span.textContent = ing;
+            span.onclick = () => addIngredient(ing);
+            ingredientList.appendChild(span);
+        });
+    }
+
+    function filterIngredients() {
+        const query = document.getElementById("ingredient-search").value.toLowerCase();
+        // Filter the full list, and slice to 100 so it renders instantly
+        const filtered = allIngredientsData.filter(ing => ing.includes(query)).slice(0, 100);
+        renderIngredients(filtered);
+    }
+
+    function toggleDrawer() {
+        drawer.style.display = drawer.style.display === "flex" ? "none" : "flex";
+        if(drawer.style.display === "flex") {
+            document.getElementById("ingredient-search").focus();
+        }
+    }
+
+    function addIngredient(ing) {
+        if(userInput.value === "") {
+            userInput.value += ing;
+        } else {
+            userInput.value += ", " + ing;
+        }
+        userInput.focus();
+    }
+
+    function addMessage(sender, text) {
+        const div = document.createElement("div");
+        div.className = "message " + sender;
+        
+        if(sender === 'chef' || sender === 'system') {
+            div.innerHTML = marked.parse(text);
+        } else {
+            div.textContent = text;
+        }
+        
+        chatBox.appendChild(div);
+        chatBox.scrollTop = chatBox.scrollHeight;
+        return div;
+    }
+
+    function handleKeyPress(event) {
+        if (event.key === "Enter") { sendMessage(); }
+    }
+
+    async function sendMessage() {
+        const text = userInput.value.trim();
+        if (!text) return;
+
+        // 1. Add user message
+        addMessage("user", text);
+        userInput.value = "";
+        drawer.style.display = "none"; 
+        
+        // 2. Add Animated Thinking Indicator
+        const thinkingDiv = document.createElement("div");
+        thinkingDiv.className = "message system";
+        thinkingDiv.innerHTML = `Chef is thinking <span class="typing-indicator"><span></span><span></span><span></span></span>`;
+        chatBox.appendChild(thinkingDiv);
+        chatBox.scrollTop = chatBox.scrollHeight;
+
+        let aiMessageDiv = null;
+
+        try {
+            const response = await fetch("/api/chat", {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({ message: text })
+            });
+
+            const reader = response.body.getReader();
+            const decoder = new TextDecoder("utf-8");
+            let aiFullText = "";
+
+            while (true) {
+                const { done, value } = await reader.read();
+                if (done) break;
+                
+                const chunkString = decoder.decode(value, {stream: true});
+                const lines = chunkString.split("\n\n"); 
+                
+                for (let line of lines) {
+                    if (line.startsWith("data: ")) {
+                        const dataStr = line.replace("data: ", "");
+                        if (dataStr === "[DONE]") break;
+                        
+                        try {
+                            const dataObj = JSON.parse(dataStr);
+                            if (dataObj.type === "system") {
+                                // 3A. Insert System Message BEFORE the thinking indicator
+                                const sysMsg = document.createElement("div");
+                                sysMsg.className = "message system";
+                                sysMsg.textContent = dataObj.content;
+                                chatBox.insertBefore(sysMsg, thinkingDiv);
+                                chatBox.scrollTop = chatBox.scrollHeight;
+                            } else if (dataObj.type === "chunk") {
+                                // 3B. Once we get the first word, remove the thinking dots and create Chef bubble
+                                if (!aiMessageDiv) {
+                                    thinkingDiv.remove();
+                                    aiMessageDiv = addMessage("chef", "");
+                                }
+                                aiFullText += dataObj.content;
+                                aiMessageDiv.innerHTML = marked.parse(aiFullText);
+                                chatBox.scrollTop = chatBox.scrollHeight;
+                            }
+                        } catch(e) {} 
+                    }
+                }
+            }
+            // Cleanup just in case no chunks were received
+            if (thinkingDiv.parentNode) thinkingDiv.remove();
+        } catch (error) {
+            if (thinkingDiv.parentNode) thinkingDiv.remove();
+            addMessage("system", "Error connecting to server.");
+        }
+    }
+</script>
+</body>
+</html>
