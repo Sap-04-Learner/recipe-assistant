@@ -26,7 +26,7 @@ def get_recipe_recommendations(user_ingredients, top_k=3):
     
     # 4. Perform the semantic search
     results = collection.query(
-        query_texts=[user_ingredients],
+        query_texts=[f"search_query: {user_ingredients}"],
         n_results=top_k
     )
     
